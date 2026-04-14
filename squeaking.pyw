@@ -8,11 +8,17 @@ from PyQt5.QtWidgets import QWidget,QApplication
 from PyQt5.QtGui import QPainter,QPixmap,QCursor,QFont,QFontMetrics
 from PyQt5.QtMultimedia import QMediaPlayer,QMediaContent
 from PyQt5.QtCore import QTimer,QPoint,QUrl,pyqtSignal,QObject,Qt
+def resource_path(relative_path):
+    if getattr(sys, 'frozen', False):
+        base_path=os.path.dirname(sys.executable)
+    else:
+        base_path=os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
 path_Ratatoskr=os.path.dirname(__file__)
-path_Rat=os.path.join(path_Ratatoskr,"Rat")
-path_click_left=os.path.join(path_Ratatoskr,"click_left")
-path_click_right=os.path.join(path_Ratatoskr,"click_right")
-path_dialog_box=os.path.join(path_Ratatoskr,"dialogue_box")
+path_Rat=resource_path("Rat")
+path_click_left=resource_path("click_left")
+path_click_right=resource_path("click_right")
+path_dialog_box=resource_path("dialogue_box")
 cursor_pos=QCursor.pos()
 class MouseSignal(QObject):
     click_signal=pyqtSignal(int,int,str)
@@ -183,7 +189,7 @@ class Ratatoskr(QWidget):
     def clipboard_pages_fill(self):
         if not self.clipboard_text:
             return
-        font=QFont("Courier",12)
+        font=QFont("Courier",6)
         fm=QFontMetrics(font)
         line_height=fm.lineSpacing()
         char_width=max(1,fm.horizontalAdvance('A'))
@@ -224,7 +230,7 @@ class Ratatoskr(QWidget):
         for effect in self.effects:
             painter.drawPixmap(effect["pos"],effect["pix"])
         if self.clipboard_state and self.clipboard_pages:
-            painter.setFont(QFont("Courier",12))
+            painter.setFont(QFont("Courier",6))
             fm=painter.fontMetrics()
             line_height=fm.lineSpacing()
             painter.setPen(Qt.black)
@@ -247,9 +253,9 @@ class Ratatoskr(QWidget):
                     self.current_clipboard_page=len(self.clipboard_pages)-1
                 self.update()
     def set_hotkey(self):
-        keyboard.add_hotkey("ctrl+shift+q",functools.partial(self.EXIT_hotkey_event))
-        keyboard.add_hotkey("ctrl+shift+w",functools.partial(self.HIDE_hotkey_event))
-        keyboard.add_hotkey("ctrl+shift+e",functools.partial(self.SPEAK_hotkey_event))
+        keyboard.add_hotkey("ctrl+shift+z",functools.partial(self.EXIT_hotkey_event))
+        keyboard.add_hotkey("ctrl+shift+x",functools.partial(self.HIDE_hotkey_event))
+        keyboard.add_hotkey("ctrl+shift+c",functools.partial(self.SPEAK_hotkey_event))
     def SPEAK_hotkey_event(self):
         self.keyboard_signals.speak_signal.emit()
     def HIDE_hotkey_event(self):
