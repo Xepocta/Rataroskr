@@ -29,6 +29,18 @@ SPEAK_PLAY_HOTKEY="ctrl+shift+alt+up"
 SPEAK_PAUSE_HOTKEY="ctrl+shift+alt+down"
 SPEAK_PREVIOUS_HOTKEY="ctrl+shift+alt+left"
 SPEAK_NEXT_HOTKEY="ctrl+shift+alt+right"
+SPEAK_SPEED_UP_HOTKEY="ctrl+alt+1+up"
+SPEAK_SPEED_DOWN_HOTKEY="ctrl+alt+1+down"
+SPEAK_PITCH_UP_HOTKEY="ctrl+alt+2+up"
+SPEAK_PITCH_DOWN_HOTKEY="ctrl+alt+2+down"
+SPEAK_AMPLITUDE_UP_HOTKEY="ctrl+alt+3+up"
+SPEAK_AMPLITUDE_DOWN_HOTKEY="ctrl+alt+3+down"
+SPEAK_WORDGAP_UP_HOTKEY="ctrl+alt+4+up"
+SPEAK_WORDGAP_DOWN_HOTKEY="ctrl+alt+4+down"
+SPEAK_CAPITAL_UP_HOTKEY="ctrl+alt+5+up"
+SPEAK_CAPITAL_DOWN_HOTKEY="ctrl+alt+5+down"
+SPEAK_VOICE_UP_HOTKEY="ctrl+alt+6+up"
+SPEAK_VOICE_DOWN_HOTKEY="ctrl+alt+6+down"
 cursor_pos=QCursor.pos()
 class MouseSignal(QObject):
     click_signal=pyqtSignal(int,int,str)
@@ -40,6 +52,18 @@ class keyboardsignal(QObject):
     speak_pause_signal=pyqtSignal()
     speak_previous_signal=pyqtSignal()
     speak_next_signal=pyqtSignal()    
+    speak_speed_up_signal=pyqtSignal()
+    speak_speed_down_signal=pyqtSignal()
+    speak_pitch_up_signal=pyqtSignal()
+    speak_pitch_down_signal=pyqtSignal()    
+    speak_amplitude_up_signal=pyqtSignal()
+    speak_amplitude_down_signal=pyqtSignal()
+    speak_wordgap_up_signal=pyqtSignal()
+    speak_wordgap_down_signal=pyqtSignal()    
+    speak_capital_up_signal=pyqtSignal()
+    speak_capital_down_signal=pyqtSignal()
+    speak_voice_up_signal=pyqtSignal()
+    speak_voice_down_signal=pyqtSignal()
 class SpeakStateMachine:
     def __init__(self):
         self.current_temp_text_file = None
@@ -50,6 +74,18 @@ class SpeakStateMachine:
         self.current_sentence_process=None
         self.speaker_timer=QTimer()
         self.speaker_timer.timeout.connect(self.finish_check_event)
+        self.voice_parameters={
+        "speed":175,
+        "pitch":50,
+        "amplitude":100,
+        "wordgap":0,
+        "capital":0,
+        "voice":"cmn",
+        }
+        self.available_voices=["cmn","en-us","en-gb","en"]
+        self.current_voice_index=0
+        self.voice_parameters["voice"]=self.available_voices[self.current_voice_index]
+        self.is_manual_change_voice=False
     def speak_event_receive(self,event):
         transitions={
         ("stopped","play"):"playing",
@@ -96,8 +132,8 @@ class SpeakStateMachine:
             return
         try:
             has_zh=bool(re.search(r"[\u4e00-\u9fff]",current_sentence))
-            es_voice="cmn" if has_zh else "en-us"
-            self.speak_sentence_from_file(current_sentence, es_voice)
+            self.voice_parameters["voice"]="cmn" if has_zh else "en-us"
+            self.speak_sentence_from_file(current_sentence)
             self.speaker_timer.start(100)
         except Exception as e:
             self.current_sentence_index+=1
@@ -179,14 +215,38 @@ class SpeakStateMachine:
                 self.play_next_sentence_event()
             else:
                 self.current_sentence_process = None
-    def speak_sentence_from_file(self,current_sentence,es_voice):
+    def speak_sentence_from_file(self,current_sentence):
         fd,path=tempfile.mkstemp(suffix=".txt",text=True)
         os.close(fd)
         with open(path,"w",encoding="utf-8")as f:
-            f.write(current_sentence)
+            f.write(current_sentence)		
+        command=[
+            "espeak-ng",
+            "-s",str(self.voice_parameters["speed"]),
+            "-p",str(self.voice_parameters["pitch"]),
+            "-a",str(self.voice_parameters["amplitude"]),
+            "-g",str(self.voice_parameters["wordgap"]),        
+            "-v",str(self.voice_parameters["voice"]),
+            "-b","1",
+            "-f",path
+            ]
+        if self.voice_parameters["capital"]>0:
+            command[1:1]=["-k", str(self.voice_parameters["capital"])]
         creationflags=subprocess.CREATE_NO_WINDOW
-        self.current_sentence_process=subprocess.Popen(["espeak-ng","-v",es_voice,"-b","1","-f",path],creationflags=creationflags)
+        self.current_sentence_process=subprocess.Popen(command,creationflags=creationflags)
         self.current_temp_text_file=path
+    def machine_button_panel(self,button,value):
+        button_limits={
+        "speed":(80,450),
+        "pitch":(0,99),
+        "amplitude":(0,200),
+        "wordgap":(0,50),
+        "capital":(0,20),
+        }
+        button_parameter=self.voice_parameters[button]
+        min_button_parameter,max_button_parameter=button_limits[button]
+        button_parameter_update=max(min_button_parameter,min(max_button_parameter,button_parameter+value))
+        self.voice_parameters[button]=button_parameter_update
 speak_state_machine=SpeakStateMachine()
 class Ratatoskr(QWidget):
     def __init__(self):
@@ -202,6 +262,18 @@ class Ratatoskr(QWidget):
         self.keyboard_signals.speak_pause_signal.connect(lambda:speak_state_machine.speak_event_receive("pause"))
         self.keyboard_signals.speak_previous_signal.connect(lambda:speak_state_machine.sentence_move(-1))
         self.keyboard_signals.speak_next_signal.connect(lambda:speak_state_machine.sentence_move(1))
+        self.keyboard_signals.speak_speed_up_signal.connect(lambda:speak_state_machine.machine_button_panel("speed",10))
+        self.keyboard_signals.speak_speed_down_signal.connect(lambda:speak_state_machine.machine_button_panel("speed",-10))
+        self.keyboard_signals.speak_pitch_up_signal.connect(lambda:speak_state_machine.machine_button_panel("pitch",10))
+        self.keyboard_signals.speak_pitch_down_signal.connect(lambda:speak_state_machine.machine_button_panel("pitch",-10))
+        self.keyboard_signals.speak_amplitude_up_signal.connect(lambda:speak_state_machine.machine_button_panel("amplitude",10))
+        self.keyboard_signals.speak_amplitude_down_signal.connect(lambda:speak_state_machine.machine_button_panel("amplitude",-10))
+        self.keyboard_signals.speak_wordgap_up_signal.connect(lambda:speak_state_machine.machine_button_panel("wordgap",10))
+        self.keyboard_signals.speak_wordgap_down_signal.connect(lambda:speak_state_machine.machine_button_panel("wordgap",-10))
+        self.keyboard_signals.speak_capital_up_signal.connect(lambda:speak_state_machine.machine_button_panel("capital",1))
+        self.keyboard_signals.speak_capital_down_signal.connect(lambda:speak_state_machine.machine_button_panel("capital",-1))
+        self.keyboard_signals.speak_voice_up_signal.connect(lambda:speak_state_machine.machine_button_panel("voice",1))
+        self.keyboard_signals.speak_voice_down_signal.connect(lambda:speak_state_machine.machine_button_panel("voice",-1))
         self.Rat_frames=[]
         pngs=sorted([P for P in os.listdir(PATH_Rat)if P.lower().endswith(".png")])
         for P in pngs:
@@ -432,20 +504,56 @@ class Ratatoskr(QWidget):
                     self.current_clipboard_page=len(self.clipboard_pages)-1
                 self.update()
     def set_hotkey(self):
-        keyboard.add_hotkey(SPEAK_PLAY_HOTKEY,self.SPEAKER_PLAY_hotkey_event)
-        keyboard.add_hotkey(SPEAK_PAUSE_HOTKEY,self.SPEAKER_PAUSE_hotkey_event)
-        keyboard.add_hotkey(SPEAK_PREVIOUS_HOTKEY,self.SPEAKER_PREVIOUS_hotkey_event)
-        keyboard.add_hotkey(SPEAK_NEXT_HOTKEY,self.SPEAKER_NEXT_hotkey_event)
+        keyboard.add_hotkey(SPEAK_PLAY_HOTKEY,self.SPEAK_PLAY_hotkey_event)
+        keyboard.add_hotkey(SPEAK_PAUSE_HOTKEY,self.SPEAK_PAUSE_hotkey_event)
+        keyboard.add_hotkey(SPEAK_PREVIOUS_HOTKEY,self.SPEAK_PREVIOUS_hotkey_event)
+        keyboard.add_hotkey(SPEAK_NEXT_HOTKEY,self.SPEAK_NEXT_hotkey_event)
+        keyboard.add_hotkey(SPEAK_SPEED_UP_HOTKEY,self.SPEAK_SPEED_UP_hotkey_event)
+        keyboard.add_hotkey(SPEAK_SPEED_DOWN_HOTKEY,self.SPEAK_SPEED_DOWN_hotkey_event)
+        keyboard.add_hotkey(SPEAK_PITCH_UP_HOTKEY,self.SPEAK_PITCH_UP_hotkey_event)
+        keyboard.add_hotkey(SPEAK_PITCH_DOWN_HOTKEY,self.SPEAK_PITCH_DOWN_hotkey_event)
+        keyboard.add_hotkey(SPEAK_AMPLITUDE_UP_HOTKEY,self.SPEAK_AMPLITUDE_UP_hotkey_event)
+        keyboard.add_hotkey(SPEAK_AMPLITUDE_DOWN_HOTKEY,self.SPEAK_AMPLITUDE_DOWN_hotkey_event)
+        keyboard.add_hotkey(SPEAK_WORDGAP_UP_HOTKEY,self.SPEAK_WORDGAP_UP_hotkey_event)
+        keyboard.add_hotkey(SPEAK_WORDGAP_DOWN_HOTKEY,self.SPEAK_WORDGAP_DOWN_hotkey_event)
+        keyboard.add_hotkey(SPEAK_CAPITAL_UP_HOTKEY,self.SPEAK_CAPITAL_UP_hotkey_event)
+        keyboard.add_hotkey(SPEAK_CAPITAL_DOWN_HOTKEY,self.SPEAK_CAPITAL_DOWN_hotkey_event)
+        keyboard.add_hotkey(SPEAK_VOICE_UP_HOTKEY,self.SPEAK_VOICE_UP_hotkey_event)
+        keyboard.add_hotkey(SPEAK_VOICE_DOWN_HOTKEY,self.SPEAK_VOICE_DOWN_hotkey_event)
         keyboard.add_hotkey(EXIT_HOTKEY,self.EXIT_hotkey_event)
         keyboard.add_hotkey(HIDE_HOTKEY,functools.partial(self.HIDE_hotkey_event))
         keyboard.add_hotkey(THINK_HOTKEY,self.THINK_hotkey_event)
-    def SPEAKER_PLAY_hotkey_event(self):
+    def SPEAK_SPEED_UP_hotkey_event(self):
+        self.keyboard_signals.speak_speed_up_signal.emit()
+    def SPEAK_SPEED_DOWN_hotkey_event(self):
+        self.keyboard_signals.speak_speed_down_signal.emit()
+    def SPEAK_PITCH_UP_hotkey_event(self):
+        self.keyboard_signals.speak_pitch_up_signal.emit()
+    def SPEAK_PITCH_DOWN_hotkey_event(self):
+        self.keyboard_signals.speak_pitch_down_signal.emit()
+    def SPEAK_AMPLITUDE_UP_hotkey_event(self):
+        self.keyboard_signals.speak_amplitude_up_signal.emit()
+    def SPEAK_AMPLITUDE_DOWN_hotkey_event(self):
+        self.keyboard_signals.speak_amplitude_down_signal.emit()
+    def SPEAK_WORDGAP_UP_hotkey_event(self):
+        self.keyboard_signals.speak_wordgap_up_signal.emit()
+    def SPEAK_WORDGAP_DOWN_hotkey_event(self):
+        self.keyboard_signals.speak_wordgap_down_signal.emit()
+    def SPEAK_CAPITAL_UP_hotkey_event(self):
+        self.keyboard_signals.speak_capital_up_signal.emit()
+    def SPEAK_CAPITAL_DOWN_hotkey_event(self):
+        self.keyboard_signals.speak_capital_down_signal.emit()
+    def SPEAK_VOICE_UP_hotkey_event(self):
+        self.keyboard_signals.speak_voice_up_signal.emit()
+    def SPEAK_VOICE_DOWN_hotkey_event(self):
+        self.keyboard_signals.speak_voice_down_signal.emit()
+    def SPEAK_PLAY_hotkey_event(self):
         self.keyboard_signals.speak_play_signal.emit()
-    def SPEAKER_PAUSE_hotkey_event(self):
+    def SPEAK_PAUSE_hotkey_event(self):
         self.keyboard_signals.speak_pause_signal.emit()
-    def SPEAKER_PREVIOUS_hotkey_event(self):
+    def SPEAK_PREVIOUS_hotkey_event(self):
         self.keyboard_signals.speak_previous_signal.emit()
-    def SPEAKER_NEXT_hotkey_event(self):
+    def SPEAK_NEXT_hotkey_event(self):
         self.keyboard_signals.speak_next_signal.emit()
     def THINK_hotkey_event(self):
         self.keyboard_signals.think_signal.emit()
