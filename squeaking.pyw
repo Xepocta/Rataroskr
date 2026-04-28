@@ -1,5 +1,8 @@
+import tempfile
 import os
 import sys
+import re
+import subprocess
 import random
 import functools
 import keyboard
@@ -14,36 +17,196 @@ def resource_path(relative_path):
     else:
         base_path=os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
-path_Ratatoskr=os.path.dirname(__file__)
-path_Rat=resource_path("Rat")
-path_click_left=resource_path("click_left")
-path_click_right=resource_path("click_right")
-path_dialog_box=resource_path("dialogue_box")
+PATH_Ratatoskr=os.path.dirname(__file__)
+PATH_Rat=resource_path("Rat")
+PATH_click_left=resource_path("click_left")
+PATH_click_right=resource_path("click_right")
+PATH_dialog_box=resource_path("dialogue_box")
+EXIT_HOTKEY="ctrl+shift+alt+Q"
+HIDE_HOTKEY="ctrl+shift+alt+H"
+THINK_HOTKEY="ctrl+shift+alt+T"
+SPEAK_PLAY_HOTKEY="ctrl+shift+alt+up"
+SPEAK_PAUSE_HOTKEY="ctrl+shift+alt+down"
+SPEAK_PREVIOUS_HOTKEY="ctrl+shift+alt+left"
+SPEAK_NEXT_HOTKEY="ctrl+shift+alt+right"
 cursor_pos=QCursor.pos()
 class MouseSignal(QObject):
     click_signal=pyqtSignal(int,int,str)
     scroll_signal=pyqtSignal(int)
 class keyboardsignal(QObject):
-    speak_signal=pyqtSignal()
+    think_signal=pyqtSignal()
+    speak_play_signal=pyqtSignal()
+    speak_pause_signal=pyqtSignal()
+    speak_previous_signal=pyqtSignal()
+    speak_next_signal=pyqtSignal()    
+class SpeakStateMachine:
+    def __init__(self):
+        self.current_temp_text_file = None
+        self.state="stopped"
+        self.current_text=""
+        self.sentences=[]
+        self.current_sentence_index=0
+        self.current_sentence_process=None
+        self.speaker_timer=QTimer()
+        self.speaker_timer.timeout.connect(self.finish_check_event)
+    def speak_event_receive(self,event):
+        transitions={
+        ("stopped","play"):"playing",
+        ("playing","pause"):"paused",
+        ("paused","play"):"playing",
+        ("playing","stop"):"stopped",
+        ("paused","stop"):"stopped",
+        ("playing","end"):"stopped",
+        }
+        next_speak_state=transitions.get((self.state,event))
+        if next_speak_state:
+            self.state=next_speak_state
+            self.speak_event_handle()
+        else:
+            return
+    def speak_event_handle(self):
+        if self.state=="playing":
+            if self.current_sentence_index==0:
+                self.play_init_event()
+            else:
+                self.play_next_sentence_event()
+            pass
+        elif self.state=="paused":
+            self.pause_event()
+            pass
+        elif self.state=="stopped":
+            self.stop_event()
+            pass        
+    def play_init_event(self):
+        if not self.current_text:
+            return
+        self.sentences=self.split_sentences(self.current_text)
+        self.current_sentence_index=0
+        self.play_next_sentence_event()
+    def play_next_sentence_event(self):
+        if self.current_sentence_index>=len(self.sentences):
+            self.stop_event()
+            return
+        current_sentence=self.sentences[self.current_sentence_index]
+        if not current_sentence.strip():
+            self.current_sentence_index+=1
+            self.play_next_sentence_event()
+            return
+        try:
+            has_zh=bool(re.search(r"[\u4e00-\u9fff]",current_sentence))
+            es_voice="cmn" if has_zh else "en-us"
+            self.speak_sentence_from_file(current_sentence, es_voice)
+            self.speaker_timer.start(100)
+        except Exception as e:
+            self.current_sentence_index+=1
+            self.play_next_sentence_event() 
+    def pause_event(self):
+        if self.current_sentence_process:
+            try:
+                self.current_sentence_process.kill()
+            except:
+                pass
+            self.current_sentence_process=None
+        if self.current_temp_text_file:
+            try:
+                os.remove(self.current_temp_text_file)
+            except:
+                pass
+            self.current_temp_text_file = None
+        self.speaker_timer.stop()                   
+    def stop_event(self):
+        self.state="stopped"
+        if self.current_sentence_process:
+            try:
+                self.current_sentence_process.kill()
+                self.current_sentence_process.wait(timeout=1)
+            except:
+                pass
+        if self.current_temp_text_file:
+            try:
+                os.remove(self.current_temp_text_file)
+            except:
+                pass
+            self.current_temp_text_file = None
+        self.current_sentence_process=None
+        self.speaker_timer.stop()
+        self.current_sentence_index=0
+    def sentence_move(self,steps):
+        if not self.sentences:
+            return
+        new_sentence_index=self.current_sentence_index+steps
+        if 0<=new_sentence_index<len(self.sentences):
+            if self.current_sentence_process:
+                try:
+                    self.current_sentence_process.kill()
+                except:
+                    pass
+                self.current_sentence_process=None
+            self.speaker_timer.stop()
+            self.current_sentence_index=new_sentence_index
+            if self.state=="playing":
+                self.play_next_sentence_event()     
+    def split_sentences(self,text):
+        sentences=[]
+        temp=""
+        for t in text:
+            temp+=t
+            if t in "。！？.!?；;\n":
+                sentences.append(temp)
+                temp=""
+        if temp:
+            sentences.append(temp)
+        return sentences
+    def finish_check_event(self):
+        if self.current_sentence_process is None:
+            self.speaker_timer.stop()
+            return
+        poll=self.current_sentence_process.poll()
+        if poll is not None:
+            if self.current_temp_text_file:
+                try:
+                    os.remove(self.current_temp_text_file)
+                except:
+                    pass
+                self.current_temp_text_file = None
+            self.current_sentence_index += 1
+            self.speaker_timer.stop()
+            if self.state == "playing":
+                self.play_next_sentence_event()
+            else:
+                self.current_sentence_process = None
+    def speak_sentence_from_file(self,current_sentence,es_voice):
+        fd,path=tempfile.mkstemp(suffix=".txt",text=True)
+        os.close(fd)
+        with open(path,"w",encoding="utf-8")as f:
+            f.write(current_sentence)
+        creationflags=subprocess.CREATE_NO_WINDOW
+        self.current_sentence_process=subprocess.Popen(["espeak-ng","-v",es_voice,"-b","1","-f",path],creationflags=creationflags)
+        self.current_temp_text_file=path
+speak_state_machine=SpeakStateMachine()
 class Ratatoskr(QWidget):
     def __init__(self):
         super().__init__()
-        self.set_hotkey()
         self.mouse_signals=MouseSignal()
-        self.keyboard_signals=keyboardsignal()
+        self.keyboard_signals=keyboardsignal()        
+        self.set_hotkey()
         self.mouse_signals.scroll_signal.connect(self.mouse_scrolled_event)
         self.mouse_signals.click_signal.connect(self.mouse_clicked_event) 
-        self.keyboard_signals.speak_signal.connect(self.on_speak_keyboard_press)      
+        self.keyboard_signals.think_signal.connect(self.on_think_keyboard_press)    
+        self.keyboard_signals.speak_play_signal.connect(lambda:speak_state_machine.speak_event_receive("play"))
+        self.keyboard_signals.speak_pause_signal.connect(lambda:speak_state_machine.speak_event_receive("pause"))
+        self.keyboard_signals.speak_previous_signal.connect(lambda:speak_state_machine.sentence_move(-1))
+        self.keyboard_signals.speak_next_signal.connect(lambda:speak_state_machine.sentence_move(1))
         self.Rat_frames=[]
-        pngs=sorted([P for P in os.listdir(path_Rat)if P.lower().endswith(".png")])
+        pngs=sorted([P for P in os.listdir(PATH_Rat)if P.lower().endswith(".png")])
         for P in pngs:
-            pix=QPixmap(os.path.join(path_Rat,P))
+            pix=QPixmap(os.path.join(PATH_Rat,P))
             if not pix.isNull():
                 self.Rat_frames.append(pix)
         self.box_frames=[]
-        pngs=sorted([P for P in os.listdir(path_dialog_box)if P.lower().endswith(".png")])
+        pngs=sorted([P for P in os.listdir(PATH_dialog_box)if P.lower().endswith(".png")])
         for P in pngs:
-            pix=QPixmap(os.path.join(path_dialog_box,P))
+            pix=QPixmap(os.path.join(PATH_dialog_box,P))
             if not pix.isNull():
                 self.box_frames.append(pix)
         if not self.Rat_frames or not self.box_frames:
@@ -60,7 +223,7 @@ class Ratatoskr(QWidget):
         self.Rat_frame_timer.timeout.connect(self.get_cursor_pos)
         self.Rat_frame_timer.start(35)
         self.box_frame_timer=QTimer()
-        self.box_frame_timer.timeout.connect(self.speaked_event)
+        self.box_frame_timer.timeout.connect(self.thought_event)
         self.effects=[]
         self.players=[]     
         self.clipboard_text=""
@@ -94,7 +257,7 @@ class Ratatoskr(QWidget):
         if not pressed:
             return
         self.mouse_signals.click_signal.emit(x,y,button.name)
-    def on_speak_keyboard_press(self):
+    def on_think_keyboard_press(self):
         if self.box_state:
             self.box_state=False
         else:
@@ -117,12 +280,12 @@ class Ratatoskr(QWidget):
     def mouse_clicked_event(self,x,y,button_name):       
         effect_pos=QPoint(x,y)
         if button_name=="left":
-            self.effect_create(path_click_left,effect_pos)
+            self.effect_create(PATH_click_left,effect_pos)
         elif button_name=="right":
-            self.effect_create(path_click_right,effect_pos)
+            self.effect_create(PATH_click_right,effect_pos)
         elif button_name=="middle":
             self.clipboard_show()            
-    def speaked_event(self):
+    def thought_event(self):
         if not self.box_frames:
             self.box_frame_timer.stop()
             return
@@ -221,6 +384,13 @@ class Ratatoskr(QWidget):
             self.clipboard_pages=['']
         if self.current_clipboard_page>=len(self.clipboard_pages):
             self.current_clipboard_page=len(self.clipboard_pages)-1
+        self.sync_speak_text_to_current_page()
+    def sync_speak_text_to_current_page(self):
+        if self.clipboard_pages and 0 <= self.current_clipboard_page<len(self.clipboard_pages):
+            speak_state_machine.stop_event()
+            speak_state_machine.current_text=self.clipboard_pages[self.current_clipboard_page]
+            speak_state_machine.sentences=[]
+            speak_state_machine.current_sentence_index=0
     def paintEvent(self,event):
         painter=QPainter(self)
         Rat_pix=self.Rat_frames[self.current_Rat_frame]
@@ -253,11 +423,23 @@ class Ratatoskr(QWidget):
                     self.current_clipboard_page=len(self.clipboard_pages)-1
                 self.update()
     def set_hotkey(self):
-        keyboard.add_hotkey("ctrl+shift+z",functools.partial(self.EXIT_hotkey_event))
-        keyboard.add_hotkey("ctrl+shift+x",functools.partial(self.HIDE_hotkey_event))
-        keyboard.add_hotkey("ctrl+shift+c",functools.partial(self.SPEAK_hotkey_event))
-    def SPEAK_hotkey_event(self):
-        self.keyboard_signals.speak_signal.emit()
+        keyboard.add_hotkey(SPEAK_PLAY_HOTKEY,functools.partial(self.SPEAKER_PLAY_hotkey_event))
+        keyboard.add_hotkey(SPEAK_PAUSE_HOTKEY,functools.partial(self.SPEAKER_PAUSE_hotkey_event))
+        keyboard.add_hotkey(SPEAK_PREVIOUS_HOTKEY,functools.partial(self.SPEAKER_PREVIOUS_hotkey_event))
+        keyboard.add_hotkey(SPEAK_NEXT_HOTKEY,functools.partial(self.SPEAKER_NEXT_hotkey_event))      
+        keyboard.add_hotkey(EXIT_HOTKEY,functools.partial(self.EXIT_hotkey_event))
+        keyboard.add_hotkey(HIDE_HOTKEY,functools.partial(self.HIDE_hotkey_event))
+        keyboard.add_hotkey(THINK_HOTKEY,functools.partial(self.THINK_hotkey_event))
+    def SPEAKER_PLAY_hotkey_event(self):
+        self.keyboard_signals.speak_play_signal.emit()
+    def SPEAKER_PAUSE_hotkey_event(self):
+        self.keyboard_signals.speak_pause_signal.emit()
+    def SPEAKER_PREVIOUS_hotkey_event(self):
+        self.keyboard_signals.speak_previous_signal.emit()
+    def SPEAKER_NEXT_hotkey_event(self):
+        self.keyboard_signals.speak_next_signal.emit()
+    def THINK_hotkey_event(self):
+        self.keyboard_signals.think_signal.emit()
     def HIDE_hotkey_event(self):
         if self.isVisible():
             self.hide()
@@ -266,6 +448,7 @@ class Ratatoskr(QWidget):
     def EXIT_hotkey_event(self):
         QTimer.singleShot(0,self.close_the_window)
     def close_the_window(self):
+        speak_state_machine.stop_event()
         if hasattr(self,"listener"):
             self.listener.stop()
         keyboard.unhook_all_hotkeys()
