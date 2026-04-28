@@ -35,6 +35,7 @@ class MouseSignal(QObject):
     scroll_signal=pyqtSignal(int)
 class keyboardsignal(QObject):
     think_signal=pyqtSignal()
+    hide_signal=pyqtSignal()
     speak_play_signal=pyqtSignal()
     speak_pause_signal=pyqtSignal()
     speak_previous_signal=pyqtSignal()
@@ -79,6 +80,7 @@ class SpeakStateMachine:
             pass        
     def play_init_event(self):
         if not self.current_text:
+            self.state="stopped"
             return
         self.sentences=self.split_sentences(self.current_text)
         self.current_sentence_index=0
@@ -104,6 +106,7 @@ class SpeakStateMachine:
         if self.current_sentence_process:
             try:
                 self.current_sentence_process.kill()
+                self.current_sentence_process.wait(timeout=1)
             except:
                 pass
             self.current_sentence_process=None
@@ -112,7 +115,7 @@ class SpeakStateMachine:
                 os.remove(self.current_temp_text_file)
             except:
                 pass
-            self.current_temp_text_file = None
+            self.current_temp_text_file=None
         self.speaker_timer.stop()                   
     def stop_event(self):
         self.state="stopped"
@@ -127,7 +130,7 @@ class SpeakStateMachine:
                 os.remove(self.current_temp_text_file)
             except:
                 pass
-            self.current_temp_text_file = None
+            self.current_temp_text_file=None
         self.current_sentence_process=None
         self.speaker_timer.stop()
         self.current_sentence_index=0
@@ -163,15 +166,16 @@ class SpeakStateMachine:
             return
         poll=self.current_sentence_process.poll()
         if poll is not None:
+            self.current_sentence_process=None
             if self.current_temp_text_file:
                 try:
                     os.remove(self.current_temp_text_file)
                 except:
                     pass
-                self.current_temp_text_file = None
-            self.current_sentence_index += 1
+                self.current_temp_text_file=None
+            self.current_sentence_index+=1
             self.speaker_timer.stop()
-            if self.state == "playing":
+            if self.state=="playing":
                 self.play_next_sentence_event()
             else:
                 self.current_sentence_process = None
@@ -193,6 +197,7 @@ class Ratatoskr(QWidget):
         self.mouse_signals.scroll_signal.connect(self.mouse_scrolled_event)
         self.mouse_signals.click_signal.connect(self.mouse_clicked_event) 
         self.keyboard_signals.think_signal.connect(self.on_think_keyboard_press)    
+        self.keyboard_signals.hide_signal.connect(self.hide_Ratatoskr)    
         self.keyboard_signals.speak_play_signal.connect(lambda:speak_state_machine.speak_event_receive("play"))
         self.keyboard_signals.speak_pause_signal.connect(lambda:speak_state_machine.speak_event_receive("pause"))
         self.keyboard_signals.speak_previous_signal.connect(lambda:speak_state_machine.sentence_move(-1))
@@ -342,8 +347,12 @@ class Ratatoskr(QWidget):
         else:
             if self.current_clipboard_page+1<len(self.clipboard_pages):
                 self.current_clipboard_page+=1
+                self.sync_speak_text_to_current_page()
                 self.update()
             else:
+                speak_state_machine.stop_event()
+                speak_state_machine.current_text=""
+                speak_state_machine.sentences=[]
                 self.clipboard_state=False
                 self.clipboard_text=""
                 self.clipboard_pages=[]
@@ -423,13 +432,13 @@ class Ratatoskr(QWidget):
                     self.current_clipboard_page=len(self.clipboard_pages)-1
                 self.update()
     def set_hotkey(self):
-        keyboard.add_hotkey(SPEAK_PLAY_HOTKEY,functools.partial(self.SPEAKER_PLAY_hotkey_event))
-        keyboard.add_hotkey(SPEAK_PAUSE_HOTKEY,functools.partial(self.SPEAKER_PAUSE_hotkey_event))
-        keyboard.add_hotkey(SPEAK_PREVIOUS_HOTKEY,functools.partial(self.SPEAKER_PREVIOUS_hotkey_event))
-        keyboard.add_hotkey(SPEAK_NEXT_HOTKEY,functools.partial(self.SPEAKER_NEXT_hotkey_event))      
-        keyboard.add_hotkey(EXIT_HOTKEY,functools.partial(self.EXIT_hotkey_event))
+        keyboard.add_hotkey(SPEAK_PLAY_HOTKEY,self.SPEAKER_PLAY_hotkey_event)
+        keyboard.add_hotkey(SPEAK_PAUSE_HOTKEY,self.SPEAKER_PAUSE_hotkey_event)
+        keyboard.add_hotkey(SPEAK_PREVIOUS_HOTKEY,self.SPEAKER_PREVIOUS_hotkey_event)
+        keyboard.add_hotkey(SPEAK_NEXT_HOTKEY,self.SPEAKER_NEXT_hotkey_event)
+        keyboard.add_hotkey(EXIT_HOTKEY,self.EXIT_hotkey_event)
         keyboard.add_hotkey(HIDE_HOTKEY,functools.partial(self.HIDE_hotkey_event))
-        keyboard.add_hotkey(THINK_HOTKEY,functools.partial(self.THINK_hotkey_event))
+        keyboard.add_hotkey(THINK_HOTKEY,self.THINK_hotkey_event)
     def SPEAKER_PLAY_hotkey_event(self):
         self.keyboard_signals.speak_play_signal.emit()
     def SPEAKER_PAUSE_hotkey_event(self):
@@ -441,12 +450,14 @@ class Ratatoskr(QWidget):
     def THINK_hotkey_event(self):
         self.keyboard_signals.think_signal.emit()
     def HIDE_hotkey_event(self):
+        self.keyboard_signals.hide_signal.emit()
+    def EXIT_hotkey_event(self):
+        QTimer.singleShot(0,self.close_the_window)
+    def hide_Ratatoskr(self):
         if self.isVisible():
             self.hide()
         else:
-            self.show()        
-    def EXIT_hotkey_event(self):
-        QTimer.singleShot(0,self.close_the_window)
+            self.show()          
     def close_the_window(self):
         speak_state_machine.stop_event()
         if hasattr(self,"listener"):
