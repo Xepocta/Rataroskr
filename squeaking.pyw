@@ -84,7 +84,7 @@ class SpeakStateMachine:
         "capital":0,
         "voice":"cmn",
         }
-        self.available_voices=["cmn","en-us","en-gb","en"]
+        self.available_voices=self.load_available_voices()
         self.current_voice_index=0
         self.voice_parameters["voice"]=self.available_voices[self.current_voice_index]
         self.is_manual_change_voice=False
@@ -226,7 +226,7 @@ class SpeakStateMachine:
             f.write(current_sentence)       
         command=[
             PATH_espeak_ng_exe,
-             f"--path={PATH_espeak_ng}",
+            "--path",PATH_espeak_ng,
             "-s",str(self.voice_parameters["speed"]),
             "-p",str(self.voice_parameters["pitch"]),
             "-a",str(self.voice_parameters["amplitude"]),
@@ -258,8 +258,9 @@ class SpeakStateMachine:
                 return          
             self.current_voice_index=(self.current_voice_index+direction)%len(self.available_voices)
             self.voice_parameters["voice"]=self.available_voices[self.current_voice_index]
+            print(self.voice_parameters["voice"])
             self.is_manual_change_voice=True
-    def load_available_voices():
+    def load_available_voices(self):
         if not os.path.exists(PATH_espeak_ng_exe):
             return ["cmn","en-us","en-gb","en"]
         creationflags=subprocess.CREATE_NO_WINDOW
