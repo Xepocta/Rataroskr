@@ -22,6 +22,8 @@ PATH_Rat=resource_path("Rat")
 PATH_click_left=resource_path("click_left")
 PATH_click_right=resource_path("click_right")
 PATH_dialog_box=resource_path("dialogue_box")
+PATH_espeak_ng=resource_path("eSpeak NG")
+PATH_espeak_ng_exe=os.path.join(PATH_espeak_ng,"espeak-ng.exe")
 EXIT_HOTKEY="ctrl+shift+alt+Q"
 HIDE_HOTKEY="ctrl+shift+alt+H"
 THINK_HOTKEY="ctrl+shift+alt+T"
@@ -131,8 +133,9 @@ class SpeakStateMachine:
             self.play_next_sentence_event()
             return
         try:
-            has_zh=bool(re.search(r"[\u4e00-\u9fff]",current_sentence))
-            self.voice_parameters["voice"]="cmn" if has_zh else "en-us"
+            if not self.is_manual_change_voice:
+                has_zh=bool(re.search(r"[\u4e00-\u9fff]",current_sentence))
+                self.voice_parameters["voice"]="cmn" if has_zh else "en-us"
             self.speak_sentence_from_file(current_sentence)
             self.speaker_timer.start(100)
         except Exception as e:
@@ -154,6 +157,7 @@ class SpeakStateMachine:
             self.current_temp_text_file=None
         self.speaker_timer.stop()                   
     def stop_event(self):
+        self.is_manual_change_voice=False 
         self.state="stopped"
         if self.current_sentence_process:
             try:
@@ -170,10 +174,10 @@ class SpeakStateMachine:
         self.current_sentence_process=None
         self.speaker_timer.stop()
         self.current_sentence_index=0
-    def sentence_move(self,steps):
+    def sentence_move(self,direction):
         if not self.sentences:
             return
-        new_sentence_index=self.current_sentence_index+steps
+        new_sentence_index=self.current_sentence_index+direction
         if 0<=new_sentence_index<len(self.sentences):
             if self.current_sentence_process:
                 try:
@@ -219,16 +223,17 @@ class SpeakStateMachine:
         fd,path=tempfile.mkstemp(suffix=".txt",text=True)
         os.close(fd)
         with open(path,"w",encoding="utf-8")as f:
-            f.write(current_sentence)		
+            f.write(current_sentence)       
         command=[
-            "espeak-ng",
+            PATH_espeak_ng_exe,
+             f"--path={PATH_espeak_ng}",
             "-s",str(self.voice_parameters["speed"]),
             "-p",str(self.voice_parameters["pitch"]),
             "-a",str(self.voice_parameters["amplitude"]),
             "-g",str(self.voice_parameters["wordgap"]),        
             "-v",str(self.voice_parameters["voice"]),
             "-b","1",
-            "-f",path
+            "-f",path,
             ]
         if self.voice_parameters["capital"]>0:
             command[1:1]=["-k", str(self.voice_parameters["capital"])]
@@ -247,6 +252,50 @@ class SpeakStateMachine:
         min_button_parameter,max_button_parameter=button_limits[button]
         button_parameter_update=max(min_button_parameter,min(max_button_parameter,button_parameter+value))
         self.voice_parameters[button]=button_parameter_update
+    def machine_knob_panel(self,knob,direction):
+        if knob=="voice":
+            if not self.available_voices:
+                return          
+            self.current_voice_index=(self.current_voice_index+direction)%len(self.available_voices)
+            self.voice_parameters["voice"]=self.available_voices[self.current_voice_index]
+            self.is_manual_change_voice=True
+    def load_available_voices():
+        if not os.path.exists(PATH_espeak_ng_exe):
+            return ["cmn","en-us","en-gb","en"]
+        creationflags=subprocess.CREATE_NO_WINDOW
+        try:
+            result=subprocess.run(
+                [PATH_espeak_ng_exe,f"--path={PATH_espeak_ng}","--voices"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=creationflags
+            )
+        except Exception:
+            return ["cmn", "en-us", "en-gb", "en"]
+        voices=[]
+        for line in result.stdout.splitlines():
+            line=line.strip()
+            if not line or line.startswith("Pty"):
+                continue
+            parts=line.split()
+            if len(parts)>=4:
+                language=parts[1]
+                voice_name=parts[3]
+                if voice_name.lower().endswith("mbrola-1"):
+                    continue
+                if "\\mb-" in line or " mb\\" in line:
+                    continue
+                voices.append(language)
+        unique=[]
+        for v in voices:
+            if v not in unique:
+                unique.append(v)
+        preferred=["cmn","en-us","en-gb","en","yue","ja","ko"]
+        ordered=[v for v in preferred if v in unique]
+        ordered+=[v for v in unique if v not in ordered]
+        return ordered or ["cmn", "en-us", "en-gb", "en"]
 speak_state_machine=SpeakStateMachine()
 class Ratatoskr(QWidget):
     def __init__(self):
@@ -272,8 +321,8 @@ class Ratatoskr(QWidget):
         self.keyboard_signals.speak_wordgap_down_signal.connect(lambda:speak_state_machine.machine_button_panel("wordgap",-10))
         self.keyboard_signals.speak_capital_up_signal.connect(lambda:speak_state_machine.machine_button_panel("capital",1))
         self.keyboard_signals.speak_capital_down_signal.connect(lambda:speak_state_machine.machine_button_panel("capital",-1))
-        self.keyboard_signals.speak_voice_up_signal.connect(lambda:speak_state_machine.machine_button_panel("voice",1))
-        self.keyboard_signals.speak_voice_down_signal.connect(lambda:speak_state_machine.machine_button_panel("voice",-1))
+        self.keyboard_signals.speak_voice_up_signal.connect(lambda:speak_state_machine.machine_knob_panel("voice",1))
+        self.keyboard_signals.speak_voice_down_signal.connect(lambda:speak_state_machine.machine_knob_panel("voice",-1))
         self.Rat_frames=[]
         pngs=sorted([P for P in os.listdir(PATH_Rat)if P.lower().endswith(".png")])
         for P in pngs:
