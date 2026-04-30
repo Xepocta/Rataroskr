@@ -53,6 +53,8 @@ functools
 -Ctrl+Alt+5+down 降低念出小写拉丁字母的音调。
 -Ctrl+Alt+6+up 切换上一种语言。
 -Ctrl+Alt+6+down 切换下一种语言。
+-Ctrl+Alt+7+up 切换上一种声音。
+-Ctrl+Alt+7+down 切换下一种声音。
 
 The source code of this Python application is hosted on https://github.com/Hromistoye/Ratatoskr.git. As per Section 6 of the GPLv3, this written offer to provide the Corresponding Source is valid for any third party, and will remain valid for at least three years from the date of our last distribution of this software.
 本Python应用程序的源代码托管在https://github.com/Hromistoye/Ratatoskr.git。根据GPLv3第6节的规定，这份提供对应源代码的书面要约对任何第三方均有效，且其有效期至少为自我们最后一次分发本软件之日起三年。
