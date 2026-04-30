@@ -266,7 +266,7 @@ class SpeakStateMachine:
         creationflags=subprocess.CREATE_NO_WINDOW
         try:
             result=subprocess.run(
-                [PATH_espeak_ng_exe,f"--path={PATH_espeak_ng}","--voices"],
+                [PATH_espeak_ng_exe,"--path",PATH_espeak_ng,"--voices"],
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
