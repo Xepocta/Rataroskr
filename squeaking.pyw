@@ -142,7 +142,6 @@ class SpeakStateMachine:
         try:
             if not self.is_manual_change_voice_language and not self.is_manual_change_voice_variant:
                 has_zh=bool(re.search(r"[\u4e00-\u9fff]",current_sentence))
-                self.voice_parameters["voice"]="cmn" if has_zh else "en-us"
             self.speak_sentence_from_file(current_sentence)
             self.speaker_timer.start(100)
         except Exception as e:
