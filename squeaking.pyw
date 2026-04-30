@@ -41,8 +41,10 @@ SPEAK_WORDGAP_UP_HOTKEY="ctrl+alt+4+up"
 SPEAK_WORDGAP_DOWN_HOTKEY="ctrl+alt+4+down"
 SPEAK_CAPITAL_UP_HOTKEY="ctrl+alt+5+up"
 SPEAK_CAPITAL_DOWN_HOTKEY="ctrl+alt+5+down"
-SPEAK_VOICE_UP_HOTKEY="ctrl+alt+6+up"
-SPEAK_VOICE_DOWN_HOTKEY="ctrl+alt+6+down"
+SPEAK_VOICE_LANGUAGE_UP_HOTKEY="ctrl+alt+6+up"
+SPEAK_VOICE_LANGUAGE_DOWN_HOTKEY="ctrl+alt+6+down"
+SPEAK_VOICE_VARIANT_UP_HOTKEY="ctrl+alt+7+up"
+SPEAK_VOICE_VARIANT_DOWN_HOTKEY="ctrl+alt+7+down"
 cursor_pos=QCursor.pos()
 class MouseSignal(QObject):
     click_signal=pyqtSignal(int,int,str)
@@ -64,8 +66,10 @@ class keyboardsignal(QObject):
     speak_wordgap_down_signal=pyqtSignal()    
     speak_capital_up_signal=pyqtSignal()
     speak_capital_down_signal=pyqtSignal()
-    speak_voice_up_signal=pyqtSignal()
-    speak_voice_down_signal=pyqtSignal()
+    speak_voice_language_up_signal=pyqtSignal()
+    speak_voice_language_down_signal=pyqtSignal()
+    speak_voice_variant_up_signal=pyqtSignal()
+    speak_voice_variant_down_signal=pyqtSignal()
 class SpeakStateMachine:
     def __init__(self):
         self.current_temp_text_file = None
@@ -84,10 +88,13 @@ class SpeakStateMachine:
         "capital":0,
         "voice":"cmn",
         }
-        self.available_voices=self.load_available_voices()
-        self.current_voice_index=0
-        self.voice_parameters["voice"]=self.available_voices[self.current_voice_index]
-        self.is_manual_change_voice=False
+        self.available_voice_language=self.load_available_voices_language()
+        self.available_voice_variants=self.load_available_voices_variants()
+        self.current_voice_language_index=0
+        self.current_voice_variant_index=0
+        self.voice_parameters["voice"]=self.available_voice_language[self.current_voice_language_index]+"+"+self.available_voice_variants[self.current_voice_variant_index]
+        self.is_manual_change_voice_language=False
+        self.is_manual_change_voice_variant=False
     def speak_event_receive(self,event):
         transitions={
         ("stopped","play"):"playing",
@@ -133,7 +140,7 @@ class SpeakStateMachine:
             self.play_next_sentence_event()
             return
         try:
-            if not self.is_manual_change_voice:
+            if not self.is_manual_change_voice_language and not self.is_manual_change_voice_variant:
                 has_zh=bool(re.search(r"[\u4e00-\u9fff]",current_sentence))
                 self.voice_parameters["voice"]="cmn" if has_zh else "en-us"
             self.speak_sentence_from_file(current_sentence)
@@ -157,7 +164,8 @@ class SpeakStateMachine:
             self.current_temp_text_file=None
         self.speaker_timer.stop()                   
     def stop_event(self):
-        self.is_manual_change_voice=False 
+        self.is_manual_change_voice_language=False
+        self.is_manual_change_voice_variant=False 
         self.state="stopped"
         if self.current_sentence_process:
             try:
@@ -253,14 +261,21 @@ class SpeakStateMachine:
         button_parameter_update=max(min_button_parameter,min(max_button_parameter,button_parameter+value))
         self.voice_parameters[button]=button_parameter_update
     def machine_knob_panel(self,knob,direction):
-        if knob=="voice":
-            if not self.available_voices:
+        if knob=="voice_language":
+            if not self.available_voice_language:
                 return          
-            self.current_voice_index=(self.current_voice_index+direction)%len(self.available_voices)
-            self.voice_parameters["voice"]=self.available_voices[self.current_voice_index]
+            self.current_voice_language_index=(self.current_voice_language_index+direction)%len(self.available_voice_language)
+            self.voice_parameters["voice"]=self.available_voice_language[self.current_voice_language_index]+"+"+self.available_voice_variants[self.current_voice_variant_index]
             print(self.voice_parameters["voice"])
-            self.is_manual_change_voice=True
-    def load_available_voices(self):
+            self.is_manual_change_voice_language=True
+        if knob=="voice_variant":
+            if not self.available_voice_variants:
+                return          
+            self.current_voice_variant_index=(self.current_voice_variant_index+direction)%len(self.available_voice_variants)
+            self.voice_parameters["voice"]=self.available_voice_language[self.current_voice_language_index]+"+"+self.available_voice_variants[self.current_voice_variant_index]
+            print(self.voice_parameters["voice"])
+            self.is_manual_change_voice_variant=True
+    def load_available_voices_language(self):
         if not os.path.exists(PATH_espeak_ng_exe):
             return ["cmn","en-us","en-gb","en"]
         creationflags=subprocess.CREATE_NO_WINDOW
@@ -297,7 +312,15 @@ class SpeakStateMachine:
         ordered=[v for v in preferred if v in unique]
         ordered+=[v for v in unique if v not in ordered]
         return ordered or ["cmn", "en-us", "en-gb", "en"]
-speak_state_machine=SpeakStateMachine()
+    def load_available_voices_variants(self):
+        path_variants=os.path.join(PATH_espeak_ng,"espeak-ng-data","voices","!v")
+        variants=[os.path.splitext(f)[0] for f in os.listdir(path_variants) if os.path.isfile(os.path.join(path_variants,f))]
+        return variants or [""]
+speak_state_machine=SpeakStateMachine() 
+    # language_and_variant_voices=[]
+        # for l in language:
+            # for v in variants:
+                # language_and_variant_voices.append(l+v)
 class Ratatoskr(QWidget):
     def __init__(self):
         super().__init__()
@@ -322,8 +345,10 @@ class Ratatoskr(QWidget):
         self.keyboard_signals.speak_wordgap_down_signal.connect(lambda:speak_state_machine.machine_button_panel("wordgap",-10))
         self.keyboard_signals.speak_capital_up_signal.connect(lambda:speak_state_machine.machine_button_panel("capital",1))
         self.keyboard_signals.speak_capital_down_signal.connect(lambda:speak_state_machine.machine_button_panel("capital",-1))
-        self.keyboard_signals.speak_voice_up_signal.connect(lambda:speak_state_machine.machine_knob_panel("voice",1))
-        self.keyboard_signals.speak_voice_down_signal.connect(lambda:speak_state_machine.machine_knob_panel("voice",-1))
+        self.keyboard_signals.speak_voice_language_up_signal.connect(lambda:speak_state_machine.machine_knob_panel("voice_language",1))
+        self.keyboard_signals.speak_voice_language_down_signal.connect(lambda:speak_state_machine.machine_knob_panel("voice_language",-1))
+        self.keyboard_signals.speak_voice_variant_up_signal.connect(lambda:speak_state_machine.machine_knob_panel("voice_variant",1))
+        self.keyboard_signals.speak_voice_variant_down_signal.connect(lambda:speak_state_machine.machine_knob_panel("voice_variant",-1))
         self.Rat_frames=[]
         pngs=sorted([P for P in os.listdir(PATH_Rat)if P.lower().endswith(".png")])
         for P in pngs:
@@ -568,8 +593,10 @@ class Ratatoskr(QWidget):
         keyboard.add_hotkey(SPEAK_WORDGAP_DOWN_HOTKEY,self.SPEAK_WORDGAP_DOWN_hotkey_event)
         keyboard.add_hotkey(SPEAK_CAPITAL_UP_HOTKEY,self.SPEAK_CAPITAL_UP_hotkey_event)
         keyboard.add_hotkey(SPEAK_CAPITAL_DOWN_HOTKEY,self.SPEAK_CAPITAL_DOWN_hotkey_event)
-        keyboard.add_hotkey(SPEAK_VOICE_UP_HOTKEY,self.SPEAK_VOICE_UP_hotkey_event)
-        keyboard.add_hotkey(SPEAK_VOICE_DOWN_HOTKEY,self.SPEAK_VOICE_DOWN_hotkey_event)
+        keyboard.add_hotkey(SPEAK_VOICE_LANGUAGE_UP_HOTKEY,self.SPEAK_VOICE_LANGUAGE_UP_hotkey_event)
+        keyboard.add_hotkey(SPEAK_VOICE_LANGUAGE_DOWN_HOTKEY,self.SPEAK_VOICE_LANGUAGE_DOWN_hotkey_event)
+        keyboard.add_hotkey(SPEAK_VOICE_VARIANT_UP_HOTKEY,self.SPEAK_VOICE_VARIANT_UP_hotkey_event)
+        keyboard.add_hotkey(SPEAK_VOICE_VARIANT_DOWN_HOTKEY,self.SPEAK_VOICE_VARIANT_DOWN_hotkey_event)
         keyboard.add_hotkey(EXIT_HOTKEY,self.EXIT_hotkey_event)
         keyboard.add_hotkey(HIDE_HOTKEY,functools.partial(self.HIDE_hotkey_event))
         keyboard.add_hotkey(THINK_HOTKEY,self.THINK_hotkey_event)
@@ -593,10 +620,14 @@ class Ratatoskr(QWidget):
         self.keyboard_signals.speak_capital_up_signal.emit()
     def SPEAK_CAPITAL_DOWN_hotkey_event(self):
         self.keyboard_signals.speak_capital_down_signal.emit()
-    def SPEAK_VOICE_UP_hotkey_event(self):
-        self.keyboard_signals.speak_voice_up_signal.emit()
-    def SPEAK_VOICE_DOWN_hotkey_event(self):
-        self.keyboard_signals.speak_voice_down_signal.emit()
+    def SPEAK_VOICE_LANGUAGE_UP_hotkey_event(self):
+        self.keyboard_signals.speak_voice_language_up_signal.emit()
+    def SPEAK_VOICE_LANGUAGE_DOWN_hotkey_event(self):
+        self.keyboard_signals.speak_voice_language_down_signal.emit()
+    def SPEAK_VOICE_VARIANT_UP_hotkey_event(self):
+        self.keyboard_signals.speak_voice_variant_up_signal.emit()
+    def SPEAK_VOICE_VARIANT_DOWN_hotkey_event(self):
+        self.keyboard_signals.speak_voice_variant_down_signal.emit()
     def SPEAK_PLAY_hotkey_event(self):
         self.keyboard_signals.speak_play_signal.emit()
     def SPEAK_PAUSE_hotkey_event(self):
