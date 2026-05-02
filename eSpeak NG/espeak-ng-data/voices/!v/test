@@ -1,0 +1,7 @@
+name test
+language en
+pitch 40        # 更低的音高
+roughness 5     # 增加沙哑感 (0-7)
+flutter 3       # 增加抖动
+echo 1 50       # 添加回声效果
+speed 90        # 放慢语速

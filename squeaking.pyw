@@ -22,6 +22,7 @@ PATH_Rat=resource_path("Rat")
 PATH_click_left=resource_path("click_left")
 PATH_click_right=resource_path("click_right")
 PATH_dialog_box=resource_path("dialogue_box")
+PATH_mark_voice=resource_path("mark_voice.txt")
 PATH_espeak_ng=resource_path("eSpeak NG")
 PATH_espeak_ng_exe=os.path.join(PATH_espeak_ng,"espeak-ng.exe")
 EXIT_HOTKEY="ctrl+shift+alt+Q"
@@ -45,6 +46,7 @@ SPEAK_VOICE_LANGUAGE_UP_HOTKEY="ctrl+alt+6+up"
 SPEAK_VOICE_LANGUAGE_DOWN_HOTKEY="ctrl+alt+6+down"
 SPEAK_VOICE_VARIANT_UP_HOTKEY="ctrl+alt+7+up"
 SPEAK_VOICE_VARIANT_DOWN_HOTKEY="ctrl+alt+7+down"
+SPEAK_VOICE_MARK_HOTKEY="ctrl+shift+alt+M"
 cursor_pos=QCursor.pos()
 class MouseSignal(QObject):
     click_signal=pyqtSignal(int,int,str)
@@ -70,6 +72,7 @@ class keyboardsignal(QObject):
     speak_voice_language_down_signal=pyqtSignal()
     speak_voice_variant_up_signal=pyqtSignal()
     speak_voice_variant_down_signal=pyqtSignal()
+    speak_voice_mark_signal=pyqtSignal()
 class SpeakStateMachine:
     def __init__(self):
         self.current_temp_text_file = None
@@ -92,6 +95,7 @@ class SpeakStateMachine:
         self.available_voice_variants=self.load_available_voices_variants()
         self.current_voice_language_index=0
         self.current_voice_variant_index=0
+        self.load_available_voice()
         self.voice_parameters["voice"]=self.available_voice_language[self.current_voice_language_index]+"+"+self.available_voice_variants[self.current_voice_variant_index]
         self.is_manual_change_voice_language=False
         self.is_manual_change_voice_variant=False
@@ -265,15 +269,35 @@ class SpeakStateMachine:
                 return          
             self.current_voice_language_index=(self.current_voice_language_index+direction)%len(self.available_voice_language)
             self.voice_parameters["voice"]=self.available_voice_language[self.current_voice_language_index]+"+"+self.available_voice_variants[self.current_voice_variant_index]
-            print(self.voice_parameters["voice"])
             self.is_manual_change_voice_language=True
         if knob=="voice_variant":
             if not self.available_voice_variants:
                 return          
             self.current_voice_variant_index=(self.current_voice_variant_index+direction)%len(self.available_voice_variants)
             self.voice_parameters["voice"]=self.available_voice_language[self.current_voice_language_index]+"+"+self.available_voice_variants[self.current_voice_variant_index]
-            print(self.voice_parameters["voice"])
             self.is_manual_change_voice_variant=True
+    def machine_memory(self):
+        with open(PATH_mark_voice,"w",encoding="utf-8") as f:
+            f.write(self.voice_parameters["voice"])
+    def load_available_voice(self):
+        if not os.path.exists(PATH_mark_voice):
+            return
+        with open(PATH_mark_voice,"r",encoding="utf-8") as f:
+            voice_str=f.read().strip()
+            if not voice_str:
+                return
+            parts=voice_str.split("+",1)
+            language=parts[0] if len(parts)>0 else ""
+            variant=parts[1] if len(parts)>1 else ""
+            if language in self.available_voice_language:
+                self.current_voice_language_index=self.available_voice_language.index(language)
+            else:
+                self.current_voice_language_index=0
+            if variant in self.available_voice_variants:
+                self.current_voice_variant_index=self.available_voice_variants.index(variant)
+            else:
+                self.current_voice_variant_index=0
+            self.voice_parameters["voice"]=self.available_voice_language[self.current_voice_language_index]+"+"+self.available_voice_variants[self.current_voice_variant_index]
     def load_available_voices_language(self):
         if not os.path.exists(PATH_espeak_ng_exe):
             return ["cmn","en-us","en-gb","en"]
@@ -316,10 +340,6 @@ class SpeakStateMachine:
         variants=[os.path.splitext(f)[0] for f in os.listdir(path_variants) if os.path.isfile(os.path.join(path_variants,f))]
         return variants or [""]
 speak_state_machine=SpeakStateMachine() 
-    # language_and_variant_voices=[]
-        # for l in language:
-            # for v in variants:
-                # language_and_variant_voices.append(l+v)
 class Ratatoskr(QWidget):
     def __init__(self):
         super().__init__()
@@ -348,6 +368,7 @@ class Ratatoskr(QWidget):
         self.keyboard_signals.speak_voice_language_down_signal.connect(lambda:speak_state_machine.machine_knob_panel("voice_language",-1))
         self.keyboard_signals.speak_voice_variant_up_signal.connect(lambda:speak_state_machine.machine_knob_panel("voice_variant",1))
         self.keyboard_signals.speak_voice_variant_down_signal.connect(lambda:speak_state_machine.machine_knob_panel("voice_variant",-1))
+        self.keyboard_signals.speak_voice_mark_signal.connect(speak_state_machine.machine_memory)
         self.Rat_frames=[]
         pngs=sorted([P for P in os.listdir(PATH_Rat)if P.lower().endswith(".png")])
         for P in pngs:
@@ -596,6 +617,7 @@ class Ratatoskr(QWidget):
         keyboard.add_hotkey(SPEAK_VOICE_LANGUAGE_DOWN_HOTKEY,self.SPEAK_VOICE_LANGUAGE_DOWN_hotkey_event)
         keyboard.add_hotkey(SPEAK_VOICE_VARIANT_UP_HOTKEY,self.SPEAK_VOICE_VARIANT_UP_hotkey_event)
         keyboard.add_hotkey(SPEAK_VOICE_VARIANT_DOWN_HOTKEY,self.SPEAK_VOICE_VARIANT_DOWN_hotkey_event)
+        keyboard.add_hotkey(SPEAK_VOICE_MARK_HOTKEY,self.SPEAK_VOICE_MARK_hotkey_event)
         keyboard.add_hotkey(EXIT_HOTKEY,self.EXIT_hotkey_event)
         keyboard.add_hotkey(HIDE_HOTKEY,functools.partial(self.HIDE_hotkey_event))
         keyboard.add_hotkey(THINK_HOTKEY,self.THINK_hotkey_event)
@@ -627,6 +649,8 @@ class Ratatoskr(QWidget):
         self.keyboard_signals.speak_voice_variant_up_signal.emit()
     def SPEAK_VOICE_VARIANT_DOWN_hotkey_event(self):
         self.keyboard_signals.speak_voice_variant_down_signal.emit()
+    def SPEAK_VOICE_MARK_hotkey_event(self):
+        self.keyboard_signals.speak_voice_mark_signal.emit()
     def SPEAK_PLAY_hotkey_event(self):
         self.keyboard_signals.speak_play_signal.emit()
     def SPEAK_PAUSE_hotkey_event(self):

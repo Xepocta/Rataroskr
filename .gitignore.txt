@@ -1,0 +1,4 @@
+eSpeak NG
+licenses/License_GPLv3.rtf
+pyinstall.bat
+Ratatoskr.spec
